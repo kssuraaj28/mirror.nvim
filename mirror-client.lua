@@ -9,6 +9,7 @@ local server, bufno = ... -- TODO: Assert not none?
 
 local function connect()
   local rpcch = vim.fn.sockconnect("pipe", server, { rpc = true })
+  -- rpc* functions only work on channels opened with rpc = true. TODO: Test
   print(vim.rpcrequest(rpcch, "nvim_eval", "1+2"))
   print(vim.rpcrequest(rpcch, "nvim_command", [[echom "hi"]]))
   --[[

@@ -27,6 +27,13 @@ end
 greet()
 --]]
 
+local greet = function ()
+  local greeting = "hello"
+  print(greeting)
+end
+
+greet()
+
 --[[
 vim.api.nvim_create_user_command("Hello", function(args)
   greet(args.args ~= "" and args.args or nil)

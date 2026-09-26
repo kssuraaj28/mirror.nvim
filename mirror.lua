@@ -1,3 +1,10 @@
+--[[
+Usage: 
+ local mod = require('..')
+ mod.install_callbacks(bufno, ??)
+ mod.list_installations --> should return buffer + args
+ Q: Are we okay with mulitple installations for one buffer? I'm okay for now actually
+--]]
 local M = {}
 local events = {}
 
@@ -27,7 +34,7 @@ local callback_data = {
     on_bytes = {"bytes", noop_callback}, -- on_lines and on_bytes are called together..
     on_changedtick = {"changedtick", panic_callback}, -- undo, redo
     on_reload = {"reload", panic_callback}, -- When? TODO: Test
-    on_detach = {"detach", panic_callback}, -- :edit?, :bunload, wiped
+    on_detach = {"detach", panic_callback}, -- :edit?, :bunload, wiped -- This wil apparently unload the buffer.
 }
 
 local function attach_callbacks_to_buf(bufno)
@@ -49,7 +56,13 @@ local function attach_callbacks_to_buf(bufno)
       -- In the future, callbacks can return something and we can detach by returning true here.
     end
   end
-  -- The false ignored for lua callbacks apparently..
+
+
+  --[[
+  The false ignored for lua callbacks apparently..
+  Moreover, for RPC, there are nvim_buf_detach, 
+  which doesn't seem to be the case for lua..
+  --]]
   vim.api.nvim_buf_attach(bufno, false, callbacks)
 end
 

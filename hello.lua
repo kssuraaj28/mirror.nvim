@@ -6,8 +6,17 @@ How  to setup testing, use either
 You could also :luafile, which runs any file as a lua file
 source records things in :scriptnames
 --]]
+--
 local greeting = "hello"
 print(greeting) -- writes to messages
+
+--[[
+Greeting = "hello"
+print(Greeting) -- writes to messages
+
+-- Use :lua print(Greeting) to get the value of this global
+-- Local vars have to start with lowercase
+--]]
 
 --[[
 local greeting = "Hello"

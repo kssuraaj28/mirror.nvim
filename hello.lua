@@ -6,11 +6,10 @@ How  to setup testing, use either
 You could also :luafile, which runs any file as a lua file
 source records things in :scriptnames
 --]]
---
-local greeting = "hello"
-print(greeting) -- writes to messages
 
 --[[
+local greeting = "hello"
+print (greeting)
 Greeting = "hello"
 print(Greeting) -- writes to messages
 
@@ -18,14 +17,17 @@ print(Greeting) -- writes to messages
 -- Local vars have to start with lowercase
 --]]
 
---[[
-local greeting = "Hello"
 
-local function greet(name)
-  name = name or vim.env.USER or "world"
-  vim.notify(greeting .. ", " .. name .. "!")
+--[[
+local function greet()
+  local greeting = "hello"
+  print(greeting)
 end
 
+greet()
+--]]
+
+--[[
 vim.api.nvim_create_user_command("Hello", function(args)
   greet(args.args ~= "" and args.args or nil)
 end, { nargs = "?" })

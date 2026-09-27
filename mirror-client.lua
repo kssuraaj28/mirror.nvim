@@ -1,42 +1,46 @@
--- Take two arguments: existing server + buffer number
--- Prints the number of lines in the server or something
---
--- Experimental setup
--- two nvim 
--- nvim --listen "/tmp/nvim.test" #Only one server can listen at a time
--- nvim -c "..." # Source this file w the right args
-local server, bufno = ... -- TODO: Assert not none?
-local rpcch
+local M = {}
 
--- Methods
-local init
-local get_remote_ft
+local coro_refresh_tick = 500 -- 0.5s per refresh
 
-init = function ()
-  rpcch = vim.fn.sockconnect("pipe", server, { rpc = true })
-  -- rpc* functions only work on channels opened with rpc = true. TODO: Te
-  print(vim.rpcrequest(rpcch, "nvim_eval", "1+2"))
-  print(vim.rpcrequest(rpcch, "nvim_command", [[echom "hi"]]))
+local function coro_sleep(t)
+  local coro = coroutine.running()
+  assert(coro, "Must be called when running in a coroutine")
+  vim.defer_fn(function () assert(coroutine.resume(coro)) end, t)
+  coroutine.yield()
+end; local _ = coro_sleep
 
-  vim.print(vim.rpcrequest(rpcch, "nvim_buf_get_lines", bufno, 0, -1, false)) -- TODO: What are these args
 
-  print(get_remote_ft())
 
-  --[[
-  Raw mode, where you handle msgpack yourself (the pull design):
-  local ch = vim.fn.sockconnect("pipe", "/tmp/nvim.sock", {
-    on_data = function(_, data) ... end,
-  })
-  vim.fn.chansend(ch, vim.mpack.encode({ 0, 1, "nvim_eval", { "1+2" } }))
-  --]]
+--[[
+buf: buffer number
+lines: array of lines
+--]]
+local function force_replace_buf_lines(buf, lines)
+    -- TODO: Make sure that buf is an integer and not zero..
+    local ret = {pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)}
+    local ok =  ret[1]
+    if not ok then
+      local err = ret[2]
+      error("Buffer replacement error: " .. tostring(err), 0) -- TODO 0?
+    end
+    ret[1] = nil
+    assert(vim.tbl_isempty(ret), "Call must not return anything")
 end
 
-get_remote_ft =  function ()
-  local ft = vim.rpcrequest(rpcch, "nvim_get_option_value", "filetype", { buf
-  = bufno })
-  return ft
+local function mirror_coro(server_sock, remote_buf)
+  local cur_buf = vim.api.nvim_get_current_buf() -- TODO Check that it is loaded, etc.
+  -- local rpcch = vim.fn.sockconnect("pipe", server_sock, { rpc = true })
+  local a = 0
+  while true do
+    local astr = string.format("%d",a)
+    force_replace_buf_lines(cur_buf, {astr, 'hello', 'there'})
+    a = a + 1
+    coro_sleep(coro_refresh_tick)
+  end
 end
 
+function M.mirror(server_sock, remote_buf)
+  coroutine.wrap(function () mirror_coro(server_sock, remote_buf) end)()
+end
 
-init()
-print(server, bufno)
+return M

@@ -58,6 +58,8 @@ local function mirror_coro(server_path, remote_buf)
   local remote = construct_remote_buf(server_path, remote_buf)
 
   local function update_ft()
+  -- bo is buffer options. Wrapper around nvim_set_option_value
+  -- b is buffer variables. Also a wrapper
     local ftlcl = vim.bo[newbuf].filetype
     local ftrmt = remote.get_ft()
     if ftlcl ~= ftrmt then vim.bo[newbuf].filetype = ftrmt end
@@ -70,6 +72,9 @@ local function mirror_coro(server_path, remote_buf)
       assert (newtickrmt > tickrmt)
       tickrmt = newtickrmt
       local lines = remote.get_buflines()
+
+      -- modifiable is for buffers (we need). 
+      -- readonly is for the underlying file
       vim.bo[newbuf].modifiable = true
       force_replace_buf_lines(newbuf, lines)
       vim.bo[newbuf].modifiable = false
@@ -94,10 +99,6 @@ return M
 --[[
 Lua + vim notes
 * undolevels
-* changedtick
-* modifiable is for buffers (we need). readonly is for the underlying file
-* bo is buffer options. Wrapper around nvim_set_option_value
-* b is buffer variables. Also a wrapper
 * nvim_buf_is_valid
 * bunload wipes the buffer memory. However, the buffer still exists (nvim_buf_is_valid)
 * Use bwipeout [b] to make a buffer invalid.

@@ -16,39 +16,72 @@ local function force_replace_buf_lines(buf, lines)
   assert(vim.tbl_isempty(ret), "Call must not return anything")
 end
 
--- TODO: You can make this into a class pattern??
-local function rmt_get_ft(rpcch, bufnr)
-  return vim.rpcrequest(rpcch, "nvim_get_option_value", "filetype", { buf
-  = bufnr })
+
+local function construct_remote_buf(socket_path, buf_nr)
+  local rpcch = vim.fn.sockconnect("pipe", socket_path, { rpc = true })
+
+  local function get_ft()
+    return vim.rpcrequest(rpcch, "nvim_get_option_value", "filetype", { buf = buf_nr })
+  end
+
+  local function get_buflines()
+    return (vim.rpcrequest(rpcch, "nvim_buf_get_lines", buf_nr, 0, -1, false))
+  end
+
+  local function get_tick()
+   return vim.rpcrequest(rpcch, "nvim_buf_get_changedtick", buf_nr)
+  end
+
+  --[[
+  Closures can be expensive because we make a copy of functions for every object
+  Lua has x:method and metatables which can be cheaper. You lose encapsulation tho
+  --]]
+  return {
+    get_ft = get_ft,
+    get_buflines = get_buflines,
+    get_tick = get_tick,
+  }
 end
 
-local function rmt_get_buflines(rpcch, bufnr)
-  -- TODO: What are these args
-  return (vim.rpcrequest(rpcch, "nvim_buf_get_lines", bufnr, 0, -1, false))
-end
 
 
 -- TODO: Can I see the list of coroutines which are running?
 -- I can use this for debugging
 local function mirror_coro(server_path, remote_buf)
-  local cur_buf = vim.api.nvim_get_current_buf() -- TODO Check that it is loaded, etc.
-  local rpcch = vim.fn.sockconnect("pipe", server_path, { rpc = true })
+  --[[
+  Create a new visible + scratch buffer A scratch buffer has buftype=nofile,
+  so it can never be associated with a file..
+  --]]
+  local newbuf = vim.api.nvim_create_buf(true, true)
+  vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
 
-  -- Full buffer clone to start..
-  local function clone_step()
-    local ft = rmt_get_ft(rpcch, remote_buf)
-    local lines = rmt_get_buflines(rpcch, remote_buf)
+  local remote = construct_remote_buf(server_path, remote_buf)
 
-    -- TODO: Readonly..
-    vim.bo[cur_buf].modifiable = true
-    vim.bo[cur_buf].filetype = ft
-    force_replace_buf_lines(cur_buf, lines)
-    vim.bo[cur_buf].modifiable = false
-
-    coro_sleep(coro_refresh_tick)
+  local function update_ft()
+    local ftlcl = vim.bo[newbuf].filetype
+    local ftrmt = remote.get_ft()
+    if ftlcl ~= ftrmt then vim.bo[newbuf].filetype = ftrmt end
   end
 
-  while true do clone_step() end
+  local tickrmt = 0
+  local function update_lines()
+    local newtickrmt = remote.get_tick()
+    if tickrmt ~= newtickrmt then
+      assert (newtickrmt > tickrmt)
+      tickrmt = newtickrmt
+      local lines = remote.get_buflines()
+      vim.bo[newbuf].modifiable = true
+      force_replace_buf_lines(newbuf, lines)
+      vim.bo[newbuf].modifiable = false
+    end
+  end
+
+  while true do
+    assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid")
+    update_ft()
+    update_lines()
+    coro_sleep(coro_refresh_tick)
+  end
 end
 
 function M.mirror(server_path, remote_buf)
@@ -56,3 +89,20 @@ function M.mirror(server_path, remote_buf)
 end
 
 return M
+
+
+--[[
+Lua + vim notes
+* undolevels
+* changedtick
+* modifiable is for buffers (we need). readonly is for the underlying file
+* bo is buffer options. Wrapper around nvim_set_option_value
+* b is buffer variables. Also a wrapper
+* nvim_buf_is_valid
+* bunload wipes the buffer memory. However, the buffer still exists (nvim_buf_is_valid)
+* Use bwipeout [b] to make a buffer invalid.
+* Use vim.api.nvim_list_chans()  to list leaked channels
+* x:method = x.method(x)
+* vim.uv.new_thread is for actual multithreading
+* Use t:stop(), t:start(), t:close() and t:is_closing() (where t is a timer (look at defer_fn ret) to cancel work) for intimate coroutine control
+--]]

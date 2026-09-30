@@ -5,7 +5,7 @@ mod.stop()
 --]]
 
 ---@diagnostic disable: unused-function
----@diagnostic disable: unused-local
+--@diagnostic disable: unused-local
 
 local M = {}
 
@@ -71,7 +71,12 @@ do
     local thiscoro = assert(coroutine.running())
 
     local function defer_body()
+      assert(not coroutine.running()) -- We are running this from the main thread
       assert(coroutine.resume(thiscoro, capability)) -- Assert will throw the original error
+      -- TODO: Why should we really care about what happens after coroutine.resume?
+      -- That should be a **programming error** actually, if a coroutine body is chill(); yield(), the second yield
+      -- will just 
+      -- Control goes back into the coroutine, and why does the chill module care that it raises an error after that?
     end
     -- TODO inv checks / timers
     vim.defer_fn(defer_body, coro_refresh_tick)

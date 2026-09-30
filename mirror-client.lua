@@ -56,7 +56,7 @@ do
     buf_coro[buf] = coro
   end
 
-  buf_to_coro = function (coro) return buf_coro[coro] end
+  buf_to_coro = function (buf) return buf_coro[buf] end
 end
 
 
@@ -64,16 +64,23 @@ end
 -- You could make this into a chilling module, which would require coroutine -> timer state
 local chill
 do
+  local capability = {}
+
   chill = function ()
     local coro_refresh_tick = 100 -- 0.1s per refresh
     local thiscoro = assert(coroutine.running())
 
     local function defer_body()
-      assert(coroutine.resume(thiscoro))
+      assert(coroutine.resume(thiscoro, capability)) -- Assert will throw the original error
     end
     -- TODO inv checks / timers
     vim.defer_fn(defer_body, coro_refresh_tick)
-    coroutine.yield()
+    while coroutine.yield() ~= capability do
+      -- I don't throw an error because that is silent, and needs to be caught by the resumer..
+      -- Coroutine errors are kind of containered, which is cool?
+      -- We can also yield "unauth" or something from the second yield later.
+      vim.notify("Unauthorized resumption of coroutine, not resuming", vim.log.levels.WARN)
+    end
   end
 end
 

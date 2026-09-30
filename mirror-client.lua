@@ -59,14 +59,22 @@ do
   buf_to_coro = function (coro) return buf_coro[coro] end
 end
 
+
 -- When a coroutine calls chill, it will chill for a bit
 -- You could make this into a chilling module, which would require coroutine -> timer state
-local function chill()
-  local coro_refresh_tick = 100 -- 0.1s per refresh
-  local thiscoro = assert(coroutine.running())
-  -- TODO inv checks / timers
-  local _ =  vim.defer_fn(function () assert(coroutine.resume(thiscoro)) end, coro_refresh_tick)
-  coroutine.yield()
+local chill
+do
+  chill = function ()
+    local coro_refresh_tick = 100 -- 0.1s per refresh
+    local thiscoro = assert(coroutine.running())
+
+    local function defer_body()
+      assert(coroutine.resume(thiscoro))
+    end
+    -- TODO inv checks / timers
+    vim.defer_fn(defer_body, coro_refresh_tick)
+    coroutine.yield()
+  end
 end
 
 local function mirror_coro(server_path, remote_buf)

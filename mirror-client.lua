@@ -4,8 +4,8 @@ mod.mirror('socket', bufnr)
 mod.stop()
 --]]
 
---@diagnostic disable: unused-function
---@diagnostic disable: unused-local
+---@diagnostic disable: unused-function
+---@diagnostic disable: unused-local
 
 local M = {}
 
@@ -42,8 +42,22 @@ local function construct_remote_buf(socket_path, buf_nr)
   }
 end
 
-local coro_to_buf = {} -- We need to ensure that this is a bijection
-local buf_to_coro = {}
+local bind_coro_buf
+local buf_to_coro
+do
+  -- Invariant: This is a bijection
+  local coro_buf = {}
+  local buf_coro = {}
+
+  bind_coro_buf = function (coro, buf)
+    assert(not coro_buf[coro], "Needs to be a fresh coro")
+    assert(not buf_coro[buf], "Needs to be a fresh buffer")
+    coro_buf[coro] = buf
+    buf_coro[buf] = coro
+  end
+
+  buf_to_coro = function (coro) return buf_coro[coro] end
+end
 
 -- When a coroutine calls chill, it will chill for a bit
 -- You could make this into a chilling module, which would require coroutine -> timer state
@@ -62,9 +76,8 @@ local function mirror_coro(server_path, remote_buf)
   local newbuf = vim.api.nvim_create_buf(true, true)
 
   local thiscoro = assert(coroutine.running())
-  -- TODO: This needs to become abstracted
-  coro_to_buf[thiscoro] = newbuf
-  buf_to_coro[newbuf] = thiscoro
+
+  bind_coro_buf(thiscoro, newbuf)
 
   vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
 

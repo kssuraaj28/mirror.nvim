@@ -1,14 +1,13 @@
+--[[
+Usage: mod require(...)
+mod.mirror('socket', bufnr)
+mod.stop()
+--]]
+
+--@diagnostic disable: unused-function
+--@diagnostic disable: unused-local
+
 local M = {}
-
-local coro_refresh_tick = 100 -- 0.1s per refresh
-
-local function coro_sleep(t)
-  local coro = coroutine.running()
-  assert(coro, "Must be called when running in a coroutine")
-  vim.defer_fn(function () assert(coroutine.resume(coro)) end, t)
-  coroutine.yield()
-end; local _ = coro_sleep
-
 
 local function force_replace_buf_lines(buf, lines)
   -- TODO: Make sure that buf is an integer and not zero..
@@ -43,16 +42,30 @@ local function construct_remote_buf(socket_path, buf_nr)
   }
 end
 
+local coro_to_buf = {} -- We need to ensure that this is a bijection
+local buf_to_coro = {}
 
+-- When a coroutine calls chill, it will chill for a bit
+-- You could make this into a chilling module, which would require coroutine -> timer state
+local function chill()
+  local coro_refresh_tick = 100 -- 0.1s per refresh
+  local thiscoro = assert(coroutine.running())
+  -- TODO inv checks / timers
+  local _ =  vim.defer_fn(function () assert(coroutine.resume(thiscoro)) end, coro_refresh_tick)
+  coroutine.yield()
+end
 
--- TODO: Can I see the list of coroutines which are running?
--- I can use this for debugging
 local function mirror_coro(server_path, remote_buf)
-  --[[
-  Create a new visible + scratch buffer A scratch buffer has buftype=nofile,
-  so it can never be associated with a file..
-  --]]
+  --Create a new visible + scratch buffer 
+  --A scratch buffer has buftype=nofile,
+  --so it can never be associated with a file..
   local newbuf = vim.api.nvim_create_buf(true, true)
+
+  local thiscoro = assert(coroutine.running())
+  -- TODO: This needs to become abstracted
+  coro_to_buf[thiscoro] = newbuf
+  buf_to_coro[newbuf] = thiscoro
+
   vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
 
   local remote = construct_remote_buf(server_path, remote_buf)
@@ -85,7 +98,7 @@ local function mirror_coro(server_path, remote_buf)
     assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid")
     update_ft()
     update_lines()
-    coro_sleep(coro_refresh_tick)
+    chill() -- TODO: Make this event driven later.
   end
 end
 
@@ -94,11 +107,9 @@ function M.mirror(server_path, remote_buf)
 end
 
 return M
-
-
 --[[
 Lua + vim notes
-* undolevels
+* undolevels=-1 will always "already at oldest / newest change".
 * nvim_buf_is_valid
 * bunload wipes the buffer memory. However, the buffer still exists (nvim_buf_is_valid)
 * Use bwipeout [b] to make a buffer invalid.
@@ -106,4 +117,7 @@ Lua + vim notes
 * x:method = x.method(x)
 * vim.uv.new_thread is for actual multithreading
 * Use t:stop(), t:start(), t:close() and t:is_closing() (where t is a timer (look at defer_fn ret) to cancel work) for intimate coroutine control
+
+  assert(coroutine.status(co) == "dead", "coroutine still
+  running")
 --]]

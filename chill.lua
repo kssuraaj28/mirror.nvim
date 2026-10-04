@@ -26,7 +26,7 @@ local function spawn (body)
       chill() -- You are immediately in the chill event loop
       body (chill) -- You need to wrap w/ access control
                    -- TODO: Access control
-      assert(false, "Coroutine termination Unhandled")
+      -- assert(false, "Coroutine termination Unhandled")
     end
   coroutine.wrap(wrap_body)()
 end

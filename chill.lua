@@ -20,16 +20,18 @@ local function spawn (body)
     local capability = {}
     local c = assert(coroutine.running())
 
-    local function defer_fn ()
-      assert(not coroutine.running())
-      coroutine.resume(c, capability)
+    local function resume_c ()
+      assert(not coroutine.running()) -- This is run in the main loop
+      local ret = {coroutine.resume(c, capability)}
+      -- nvim uses an old version of lua
+      ---@diagnostic disable-next-line: deprecated
+      assert(unpack(ret)) -- Assert throws existing error if there is.
+      assert(#ret == 1) -- We don't return anything..
     end
 
-    vim.defer_fn(defer_fn, chill_interval)
-
-    if coroutine.yield() ~= capability then
-        coro_error("Unauthorized resumption of coroutine, not resuming")
-    end
+    vim.defer_fn(resume_c, chill_interval)
+    if coroutine.yield() == capability then return end
+    coro_error("Unauthorized resumption of coroutine, not resuming")
   end
 
   local function wrap_body()

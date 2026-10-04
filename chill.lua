@@ -46,16 +46,12 @@ end
 
 spawn(
   function (chill)
-    local c = assert(coroutine.running())
-    vim.defer_fn(function ()
-      coroutine.resume(c)
-    end,2000)
-
     local i = 0
     while true do
       print (i)
       i = i + 1
       chill()
+      coroutine.yield() -- This should throw an error
     end
   end
 )

@@ -62,7 +62,7 @@ local function spawn (body)
       coro_error("Unauthorized resumption of coroutine, not resuming")
     end
 
-    chill() -- Puts in on the event loop
+    chill() -- This makes the coroutine run after a while. Maybe that is okay..
     body(chill)
   end
   coroutine.wrap(body_wrapped)()
@@ -92,6 +92,25 @@ local function cnstrct_rmt_bf(socket_path, buf_nr)
   }
 end
 
+
+local function queue()
+  local data = {}
+  return {
+      push = function(e)
+          -- TODO: Have one error function for coro and main..
+          assert(x ~= nil, "Cannot push nil")
+          table.insert(data,e)
+      end,
+      pop = function() return table.remove(data,1) end,
+  }
+end
+
+
+-- Maybe what you need are channels
+-- What you need to have is a way to communicate with a coroutine
+-- push_message (coro)
+-- pop_message () -- It would have been cool to make this private to a coroutine when you spawn.. 
+
 local function cnstrct_kv_store()
   local l = {}
   setmetatable(l, {__mode = 'k'})
@@ -119,20 +138,38 @@ do
   buf_to_coro = function (buf) return buf_coro[buf] end
 end
 
+-- Message queue
+local send_msg
+local register_to_queue_db
+do
+  local db = {}
+  register_to_queue_db = function (send_fn)
+    local c = assert(coroutine.running())
+    assert(not db[c])
+    db[c] = send_fn
+  end
+
+  send_msg = function (coro, msg) db[coro](msg)  end
+end
+
+
+function Send () end
 
 local function mirror_coro(server_path, remote_buf, chill)
   --Create a new visible + scratch buffer 
   --A scratch buffer has buftype=nofile,
   --so it can never be associated with a file..
-  local newbuf = vim.api.nvim_create_buf(true, true)
-
   local thiscoro = assert(coroutine.running())
 
+  local newbuf = vim.api.nvim_create_buf(true, true)
   bind_coro_buf(thiscoro, newbuf)
 
   vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
 
   local remote = cnstrct_rmt_bf(server_path, remote_buf)
+
+  local msg_queue = queue()
+  register_to_queue_db(msg_queue.push)
 
   local function update_ft()
   -- bo is buffer options. Wrapper around nvim_set_option_value
@@ -158,10 +195,19 @@ local function mirror_coro(server_path, remote_buf, chill)
     end
   end
 
+  local function handle_msgs()
+    while true do
+      local msg = msg_queue.pop()
+      if not msg then break end
+      print(msg)
+    end
+  end
+
   while true do
     assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid")
     update_ft()
     update_lines()
+    handle_msgs()
     chill() -- TODO: Make this event driven later.
   end
 end

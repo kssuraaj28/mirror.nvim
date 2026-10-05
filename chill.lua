@@ -14,44 +14,41 @@ end
 -- Needs to create a coroutine with body, 
 -- and schedules it along with an argument which causes it to chill
 local function spawn (body)
-
-  local chill_count = 0 -- I think that a parity probably suffices
-  local function chill () -- This should not be exposed in public..
-    local chill_interval = 1000
-    local capability = {}
+  local function body_wrapped()
     local c = assert(coroutine.running())
 
-
-    local function resume_c (old_chill)
-      assert(not coroutine.running()) -- This is run in the main loop
-      local ret = {coroutine.resume(c, capability)}
-      -- nvim uses an old version of lua
-      ---@diagnostic disable-next-line: deprecated
-      assert(unpack(ret)) -- Assert throws existing error if there is.
-      assert(#ret == 1, "We don't return anything")
-      assert(old_chill + 1 == chill_count, "Unauthorized yield")
-    end
-
-    chill_count = chill_count + 1
-    vim.defer_fn(function () resume_c(chill_count) end, chill_interval)
-    if coroutine.yield() == capability then return end
-    coro_error("Unauthorized resumption of coroutine, not resuming")
-  end
-
-  local function wrap_body()
-      local c = assert(coroutine.running())
-      local function chill_ac()
-        if c ~= coroutine.running() then
-          coro_error("Something other coroutine stole this function")
-        end
-        chill()
+    local chill_count = 0 -- A parity bit probably suffices
+    local function chill()
+      -- Access control
+      local cnew = assert(coroutine.running())
+      if c ~= cnew then
+        coro_error("Something else stole this function")
       end
 
-      chill_ac()
-      body(chill_ac)
-      coro_error("Temination not handled yet")
+      local capability = {} -- You can bring this outside the body
+
+      local function resume_c (old_chill)
+        assert(not coroutine.running()) -- This is run in the main loop
+        local ret = {coroutine.resume(c, capability)}
+        -- nvim uses an old version of lua
+        ---@diagnostic disable-next-line: deprecated
+        assert(unpack(ret)) -- Assert throws existing error if there is.
+        assert(#ret == 1, "We don't return anything")
+        assert(old_chill + 1 == chill_count, "Unauthorized yield")
+      end
+
+      local chill_interval = 1000
+      chill_count = chill_count + 1
+      vim.defer_fn(function () resume_c(chill_count) end, chill_interval)
+      if coroutine.yield() == capability then return end
+      coro_error("Unauthorized resumption of coroutine, not resuming")
     end
-  coroutine.wrap(wrap_body)()
+
+    chill()
+    body(chill)
+    coro_error("Temination not handled yet")
+  end
+  coroutine.wrap(body_wrapped)()
 end
 
 spawn(

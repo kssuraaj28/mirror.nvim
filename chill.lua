@@ -31,6 +31,10 @@ local function spawn (body)
         -- nvim uses an old version of lua
         ---@diagnostic disable-next-line: deprecated
         assert(unpack(ret)) -- A coroutine error is bad
+
+        -- The coroutine can die peacefully
+        if coroutine.status(c) == 'dead' then return end
+
         assert(#ret == 2, "We return the capability")
         assert(ret[2] == capability, "Unauthorized yield")
       end
@@ -44,20 +48,27 @@ local function spawn (body)
       coro_error("Unauthorized resumption of coroutine, not resuming")
     end
 
-    chill()
+    chill() -- Puts in on the event loop
     body(chill)
-    coro_error("Temination not handled yet")
   end
   coroutine.wrap(body_wrapped)()
 end
 
+local T = {}
+setmetatable(T, {__mode = 'k'})
+local function register()
+  T[coroutine.running()] = true
+end
+
+function Dbg()
+  print(vim.tbl_count(T))
+  collectgarbage('collect')
+  print(vim.tbl_count(T))
+end
+
 spawn(
   function (chill)
-    local i = 0
-    while true do
-      print (i)
-      i = i + 1
-      chill()
-    end
+    register()
+    chill()
   end
 )

@@ -15,8 +15,60 @@ local function force_replace_buf_lines(buf, lines)
   assert(vim.tbl_isempty(ret), "Call must not return anything")
 end
 
+-- The point of this function is to visibly panic when there is some error
+-- Lua coroutines don't
+local function coro_error(msg)
+  vim.notify(msg,vim.log.levels.ERROR)
+  error() -- TODO: What are other ways to throw in lua?
+end
 
-local function construct_remote_buf(socket_path, buf_nr)
+-- Spawns a coroutine with a body
+-- The body is a function that takes in an argument which
+-- allows it to chill for a little bit
+local function spawn (body)
+  local function body_wrapped()
+    local c = assert(coroutine.running())
+
+    local capability = {}
+    local function chill()
+
+      -- Access control
+      local cnew = assert(coroutine.running())
+      if c ~= cnew then
+        coro_error("Something else stole this function")
+      end
+
+
+      local function resume_c ()
+        assert(not coroutine.running()) -- This is run in the main loop
+        local ret = {coroutine.resume(c, capability)}
+        -- nvim uses an old version of lua
+        ---@diagnostic disable-next-line: deprecated
+        assert(unpack(ret)) -- A coroutine error is bad
+
+        -- The coroutine can die peacefully
+        if coroutine.status(c) == 'dead' then return end
+
+        assert(#ret == 2, "We return the capability")
+        assert(ret[2] == capability, "Unauthorized yield")
+      end
+
+      local chill_interval = 100
+      vim.defer_fn(resume_c, chill_interval)
+      -- While an unauthorized resumer might steal the coroutine, 
+      -- if it does that, the current coroutine will just die.
+      -- So, this should be okay.. Is it?
+      if coroutine.yield(capability) == capability then return end
+      coro_error("Unauthorized resumption of coroutine, not resuming")
+    end
+
+    chill() -- Puts in on the event loop
+    body(chill)
+  end
+  coroutine.wrap(body_wrapped)()
+end
+
+local function cnstrct_rmt_bf(socket_path, buf_nr)
   local rpcch = vim.fn.sockconnect("pipe", socket_path, { rpc = true })
 
   local function get_ft()
@@ -31,16 +83,24 @@ local function construct_remote_buf(socket_path, buf_nr)
    return vim.rpcrequest(rpcch, "nvim_buf_get_changedtick", buf_nr)
   end
 
-  --[[
-  Closures can be expensive because we make a copy of functions for every object
-  Lua has x:method and metatables which can be cheaper. You lose encapsulation tho
-  --]]
+  --Closures can be expensive because we make a copy of functions for every object
+  --Lua has x:method and metatables which can be cheaper. You lose encapsulation tho
   return {
     get_ft = get_ft,
     get_buflines = get_buflines,
     get_tick = get_tick,
   }
 end
+
+local function cnstrct_kv_store()
+  local l = {}
+  setmetatable(l, {__mode = 'k'})
+  return {
+    put = function(k,v) l[k] = v end,
+    get = function(k) return l[k] end,
+  }
+end
+
 
 local bind_coro_buf
 local buf_to_coro
@@ -60,36 +120,7 @@ do
 end
 
 
--- When a coroutine calls chill, it will chill for a bit
--- You could make this into a chilling module, which would require coroutine -> timer state
-local chill
-do
-  local capability = {}
-
-  chill = function ()
-    local coro_refresh_tick = 100 -- 0.1s per refresh
-    local thiscoro = assert(coroutine.running())
-
-    local function defer_body()
-      assert(not coroutine.running()) -- We are running this from the main thread
-      assert(coroutine.resume(thiscoro, capability)) -- Assert will throw the original error
-      -- TODO: Why should we really care about what happens after coroutine.resume?
-      -- That should be a **programming error** actually, if a coroutine body is chill(); yield(), the second yield
-      -- will just 
-      -- Control goes back into the coroutine, and why does the chill module care that it raises an error after that?
-    end
-    -- TODO inv checks / timers
-    vim.defer_fn(defer_body, coro_refresh_tick)
-    while coroutine.yield() ~= capability do
-      -- I don't throw an error because that is silent, and needs to be caught by the resumer..
-      -- Coroutine errors are kind of containered, which is cool?
-      -- We can also yield "unauth" or something from the second yield later.
-      vim.notify("Unauthorized resumption of coroutine, not resuming", vim.log.levels.WARN)
-    end
-  end
-end
-
-local function mirror_coro(server_path, remote_buf)
+local function mirror_coro(server_path, remote_buf, chill)
   --Create a new visible + scratch buffer 
   --A scratch buffer has buftype=nofile,
   --so it can never be associated with a file..
@@ -101,7 +132,7 @@ local function mirror_coro(server_path, remote_buf)
 
   vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
 
-  local remote = construct_remote_buf(server_path, remote_buf)
+  local remote = cnstrct_rmt_bf(server_path, remote_buf)
 
   local function update_ft()
   -- bo is buffer options. Wrapper around nvim_set_option_value
@@ -136,7 +167,7 @@ local function mirror_coro(server_path, remote_buf)
 end
 
 function M.mirror(server_path, remote_buf)
-  coroutine.wrap(function () mirror_coro(server_path, remote_buf) end)()
+  spawn(function(chill) mirror_coro(server_path, remote_buf, chill) end)
 end
 
 return M

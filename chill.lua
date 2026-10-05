@@ -39,9 +39,16 @@ local function spawn (body)
   end
 
   local function wrap_body()
-      chill() -- You are immediately in the chill event loop
-      body (chill) -- You need to wrap w/ access control
-                   -- TODO: Access control
+      local c = assert(coroutine.running())
+      local function chill_ac()
+        if c ~= coroutine.running() then
+          coro_error("Something other coroutine stole this function")
+        end
+        chill()
+      end
+
+      chill_ac()
+      body(chill_ac)
       coro_error("Temination not handled yet")
     end
   coroutine.wrap(wrap_body)()

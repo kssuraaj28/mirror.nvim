@@ -54,14 +54,20 @@ local function spawn (body)
   coroutine.wrap(body_wrapped)()
 end
 
+local x
 spawn(
   function (chill)
+    x = chill
     local i = 0
     while true do
       print (i)
       i = i + 1
       chill()
-      coroutine.yield() -- This should throw an error
     end
   end
 )
+
+function M()
+coroutine.wrap(function ()
+ x ()
+end)() end

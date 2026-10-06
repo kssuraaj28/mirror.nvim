@@ -107,38 +107,6 @@ local function queue()
 end
 
 
--- Maybe what you need are channels
--- What you need to have is a way to communicate with a coroutine
--- push_message (coro)
--- pop_message () -- It would have been cool to make this private to a coroutine when you spawn.. 
-
-local function cnstrct_kv_store()
-  local l = {}
-  setmetatable(l, {__mode = 'k'})
-  return {
-    put = function(k,v) l[k] = v end,
-    get = function(k) return l[k] end,
-  }
-end
-
-
-local bind_coro_buf
-local buf_to_coro
-do
-  -- Invariant: This is a bijection
-  -- TODO: What happens when a coroutine dies?
-  local coro_buf = {}
-  local buf_coro = {}
-
-  bind_coro_buf = function (coro, buf)
-    assert(not coro_buf[coro], "Needs to be a fresh coro")
-    assert(not buf_coro[buf], "Needs to be a fresh buffer")
-    coro_buf[coro] = buf
-    buf_coro[buf] = coro
-  end
-
-  buf_to_coro = function (buf) return buf_coro[buf] end
-end
 
 -- Message queue
 local send_msg
@@ -156,9 +124,11 @@ do
   end
 end
 
+local buf_to_coro = {}
+
 local stop_tkn = {}
 function M.stop_mirroring()
-  local coro = assert(buf_to_coro(vim.api.nvim_get_current_buf()))
+  local coro = assert(buf_to_coro[vim.api.nvim_get_current_buf()])
   send_msg(coro, stop_tkn)
 end
 
@@ -169,7 +139,7 @@ local function mirror_coro(server_path, remote_buf, chill)
   local thiscoro = assert(coroutine.running())
 
   local newbuf = vim.api.nvim_create_buf(true, true)
-  bind_coro_buf(thiscoro, newbuf)
+  buf_to_coro[newbuf] = thiscoro
 
   vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
 
@@ -226,7 +196,7 @@ local function mirror_coro(server_path, remote_buf, chill)
   -- Cleanup
   -- wipeout the buffer (not just unload. The buffer is now invalid)
   vim.api.nvim_buf_delete(newbuf, {}) -- You don't need to have a force = true
-  -- Delete the association
+  buf_to_coro[newbuf] = nil
 end
 
 function M.mirror(server_path, remote_buf)

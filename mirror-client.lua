@@ -15,15 +15,6 @@ local function force_replace_buf_lines(buf, lines)
   assert(vim.tbl_isempty(ret), "Call must not return anything")
 end
 
--- The point of this function is to visibly panic when there is some error
--- Lua coroutines don't
--- TODO: Have one function that will throw an error for both coroutines and the main thread
-local function coro_error(msg)
-  assert(coroutine.running())
-  vim.notify(msg,vim.log.levels.ERROR)
-  error(msg) -- TODO: What are other ways to throw in lua?
-end
-
 -- Spawns a coroutine with a body
 -- The body is a function that takes in an argument which
 -- allows it to chill for a little bit
@@ -32,17 +23,19 @@ local function spawn (body)
     local c = assert(coroutine.running())
 
     local capability = {}
+    local chill_count = 0
     local function chill()
-
       -- Access control
       local cnew = assert(coroutine.running())
       if c ~= cnew then
-        coro_error("Something else stole this function")
+        error("Something else stole this function")
       end
 
-
+      chill_count = chill_count + 1
+      local old_chill = chill_count
       local function resume_c ()
         assert(not coroutine.running()) -- This is run in the main loop
+        assert (coroutine.status(c) ~= 'dead', "Killed by an unauthorized resume") -- The only way this can happen!
         local ret = {coroutine.resume(c, capability)}
         -- nvim uses an old version of lua
         ---@diagnostic disable-next-line: deprecated
@@ -51,17 +44,15 @@ local function spawn (body)
         -- The coroutine can die peacefully
         if coroutine.status(c) == 'dead' then return end
 
-        assert(#ret == 2, "We return the capability")
-        assert(ret[2] == capability, "Unauthorized yield")
+        assert(#ret == 1, "We return nothing")
+        assert(old_chill + 1 == chill_count, "Unauthorized yield")
       end
 
       local chill_interval = 100
       vim.defer_fn(resume_c, chill_interval)
-      -- While an unauthorized resumer might steal the coroutine, 
-      -- if it does that, the current coroutine will just die.
-      -- So, this should be okay.. Is it?
-      if coroutine.yield(capability) == capability then return end
-      coro_error("Unauthorized resumption of coroutine, not resuming")
+
+      if coroutine.yield() == capability then return end
+      error() -- Passing any value here can get eaten..
     end
 
     chill() -- This makes the coroutine run after a while. Maybe that is okay..
@@ -85,15 +76,19 @@ local function cnstrct_rmt_bf(socket_path, buf_nr)
    return vim.rpcrequest(rpcch, "nvim_buf_get_changedtick", buf_nr)
   end
 
+  local function close()
+    vim.fn.chanclose(rpcch)
+  end
+
   --Closures can be expensive because we make a copy of functions for every object
   --Lua has x:method and metatables which can be cheaper. You lose encapsulation tho
   return {
     get_ft = get_ft,
     get_buflines = get_buflines,
     get_tick = get_tick,
+    close = close,
   }
 end
-
 
 local function queue()
   local data = {}
@@ -105,8 +100,6 @@ local function queue()
       pop = function() return table.remove(data,1) end,
   }
 end
-
-
 
 -- Message queue
 local send_msg
@@ -155,7 +148,8 @@ local function mirror_coro(server_path, remote_buf, chill)
   -- bo is buffer options. Wrapper around nvim_set_option_value
   -- b is buffer variables. Also a wrapper
     local ftlcl = vim.bo[newbuf].filetype
-    local ftrmt = remote.get_ft()
+    local ok, ftrmt = pcall(remote.get_ft)
+    if not ok then error("TODO: Unhandled!!") end
     if ftlcl ~= ftrmt then vim.bo[newbuf].filetype = ftrmt end
   end
 
@@ -165,7 +159,8 @@ local function mirror_coro(server_path, remote_buf, chill)
     if tickrmt ~= newtickrmt then
       assert (newtickrmt > tickrmt)
       tickrmt = newtickrmt
-      local lines = remote.get_buflines()
+      local ok, lines = pcall(remote.get_buflines)
+      if not ok then error("TODO: Unhandled!!") end
 
       -- modifiable is for buffers (we need). 
       -- readonly is for the underlying file
@@ -183,7 +178,7 @@ local function mirror_coro(server_path, remote_buf, chill)
       if (msg  == stop_tkn) then
         return true
       else
-        coro_error("Unhandled message")
+        error("Unhandled message")
       end
     end
   end
@@ -197,9 +192,11 @@ local function mirror_coro(server_path, remote_buf, chill)
   end
 
   -- Cleanup. Ideally, we'd have some RAII
+  -- I'm assuming that any error from the coroutine is a bug.
   -- wipeout the buffer (not just unload. The buffer is now invalid)
   vim.api.nvim_buf_delete(newbuf, {}) -- You don't need to have a force = true
   buf_to_coro[newbuf] = nil
+  remote.close()
 end
 
 function M.mirror(server_path, remote_buf)
@@ -207,14 +204,3 @@ function M.mirror(server_path, remote_buf)
 end
 
 return M
---[[
-Lua + vim notes
-* undolevels=-1 will always "already at oldest / newest change".
-* Use vim.api.nvim_list_chans()  to list leaked channels
-* x:method = x.method(x)
-* vim.uv.new_thread is for actual multithreading
-* Use t:stop(), t:start(), t:close() and t:is_closing() (where t is a timer (look at defer_fn ret) to cancel work) for intimate coroutine control
-* vim.in_fast_event()
-* uv.timeout.
-* vim.schedule.
---]]

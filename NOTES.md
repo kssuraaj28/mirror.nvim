@@ -1,4 +1,15 @@
-Options
+# Lua + vim notes
+* undolevels=-1 will always "already at oldest / newest change".
+* Use vim.api.nvim_list_chans()  to list leaked channels
+* x:method = x.method(x)
+* vim.uv.new_thread is for actual multithreading
+* Use t:stop(), t:start(), t:close() and t:is_closing() (where t is a timer (look at defer_fn ret) to cancel work) for intimate coroutine control
+* vim.in_fast_event()
+* uv.timeout.
+* vim.schedule.
+
+## Various options
+
 For servers
 --embed
 --listen
@@ -12,6 +23,7 @@ For clients
 :detach
 v:servername
 
+## Misc
 vim.api.nvim_list_uis
 vim.api.nvim_list_chans
 vim.api.nvim_get_chan_info # I think that this just indexes onto chans

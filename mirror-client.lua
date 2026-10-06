@@ -22,38 +22,57 @@ local function spawn (body)
   local function body_wrapped()
     local c = assert(coroutine.running())
 
+    local chill_interval = 100
+
     local capability = {}
     local chill_count = 0
-    local function chill()
-      -- Access control
-      local cnew = assert(coroutine.running())
-      if c ~= cnew then
-        error("Something else stole this function")
+
+    local set_unauth_resume, get_unauth_resume
+    do
+      local unauth_resume = false
+      get_unauth_resume = function () return unauth_resume end
+      set_unauth_resume = function ()
+        assert(not unauth_resume, "Should be set only once")
+        unauth_resume = true
       end
-
-      chill_count = chill_count + 1
-      local old_chill = chill_count
-      local function resume_c ()
-        assert(not coroutine.running()) -- This is run in the main loop
-        assert (coroutine.status(c) ~= 'dead', "Killed by an unauthorized resume") -- The only way this can happen!
-        local ret = {coroutine.resume(c, capability)}
-        -- nvim uses an old version of lua
-        ---@diagnostic disable-next-line: deprecated
-        assert(unpack(ret)) -- A coroutine error is bad
-
-        -- The coroutine can die peacefully
-        if coroutine.status(c) == 'dead' then return end
-
-        assert(#ret == 1, "We return nothing")
-        assert(old_chill + 1 == chill_count, "Unauthorized yield")
-      end
-
-      local chill_interval = 100
-      vim.defer_fn(resume_c, chill_interval)
-
-      if coroutine.yield() == capability then return end
-      error() -- Passing any value here can get eaten..
     end
+
+    local chill, resume_c
+    chill = function ()
+      -- Access control
+      assert(c == (coroutine.running()), "Something else stole this function")
+      chill_count = chill_count + 1
+
+      local frozen = chill_count -- Don't read live data. Copy
+      vim.defer_fn(function () resume_c(frozen) end, chill_interval)
+
+      local cap = coroutine.yield()
+
+      if cap ~= capability then
+        set_unauth_resume()
+        error() -- Passing any value here can get eaten..
+      end
+    end
+
+    resume_c =  function (old_chill)
+      assert(not coroutine.running()) -- This is run in the main loop
+      if (get_unauth_resume() == true) then
+        assert(coroutine.status(c) == 'dead')
+        error("Killed by an unauthorized resume")
+      end
+      assert(coroutine.status(c) == 'suspended')
+      local ret = {coroutine.resume(c, capability)}
+      -- nvim uses an old version of lua
+      ---@diagnostic disable-next-line: deprecated
+      assert(unpack(ret)) -- A coroutine error is bad
+
+      -- The coroutine can die peacefully
+      if coroutine.status(c) == 'dead' then return end
+
+      assert(#ret == 1, "We return nothing")
+      assert(old_chill + 1 == chill_count, "Unauthorized yield")
+    end
+
 
     chill() -- This makes the coroutine run after a while. Maybe that is okay..
     body(chill)

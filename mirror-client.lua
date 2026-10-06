@@ -17,6 +17,7 @@ end
 
 -- The point of this function is to visibly panic when there is some error
 -- Lua coroutines don't
+-- TODO: Have one function that will throw an error for both coroutines and the main thread
 local function coro_error(msg)
   vim.notify(msg,vim.log.levels.ERROR)
   error() -- TODO: What are other ways to throw in lua?
@@ -96,10 +97,9 @@ end
 local function queue()
   local data = {}
   return {
-      push = function(e)
-          -- TODO: Have one error function for coro and main..
-          assert(x ~= nil, "Cannot push nil")
-          table.insert(data,e)
+      push = function(elm)
+          assert(elm ~= nil, "Cannot push nil")
+          table.insert(data,elm)
       end,
       pop = function() return table.remove(data,1) end,
   }
@@ -125,6 +125,7 @@ local bind_coro_buf
 local buf_to_coro
 do
   -- Invariant: This is a bijection
+  -- TODO: What happens when a coroutine dies?
   local coro_buf = {}
   local buf_coro = {}
 
@@ -149,11 +150,15 @@ do
     db[c] = send_fn
   end
 
-  send_msg = function (coro, msg) db[coro](msg)  end
+  send_msg = function (coro, msg)
+     db[coro](msg)
+  end
 end
 
-
-function Send () end
+function M.send_to_buf(msg)
+  local coro = assert(buf_to_coro(vim.api.nvim_get_current_buf()))
+  send_msg(coro, msg)
+end
 
 local function mirror_coro(server_path, remote_buf, chill)
   --Create a new visible + scratch buffer 

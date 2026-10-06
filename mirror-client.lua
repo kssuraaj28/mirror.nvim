@@ -1,10 +1,10 @@
 --[[
-Usage: mod require(...)
+Usage: local mod =  require(...)
 mod.mirror('socket', bufnr)
-mod.stop()
+mod.stop_mirroring()
 --]]
 
----@diagnostic disable: unused-function
+--@diagnostic disable: unused-function
 --@diagnostic disable: unused-local
 
 local M = {}
@@ -139,6 +139,9 @@ local function mirror_coro(server_path, remote_buf, chill)
   local thiscoro = assert(coroutine.running())
 
   local newbuf = vim.api.nvim_create_buf(true, true)
+  -- this : format thing useds string __index + lua's : sugar
+  vim.api.nvim_buf_set_name(newbuf, ('mirror:%s [%d]'):format(server_path, remote_buf))
+
   buf_to_coro[newbuf] = thiscoro
 
   vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
@@ -193,7 +196,7 @@ local function mirror_coro(server_path, remote_buf, chill)
     chill() -- TODO: Make this event driven later.
   end
 
-  -- Cleanup
+  -- Cleanup. Ideally, we'd have some RAII
   -- wipeout the buffer (not just unload. The buffer is now invalid)
   vim.api.nvim_buf_delete(newbuf, {}) -- You don't need to have a force = true
   buf_to_coro[newbuf] = nil

@@ -132,6 +132,12 @@ function M.stop_mirroring()
   send_msg(coro, stop_tkn)
 end
 
+local function todo_error_call(f)
+  local ok, ret = pcall(f)
+  if not ok then error("Unhandled") end
+  return ret
+end
+
 local function mirror_coro(server_path, remote_buf, chill)
   --Create a new visible + scratch buffer 
   --A scratch buffer has buftype=nofile,
@@ -156,19 +162,18 @@ local function mirror_coro(server_path, remote_buf, chill)
   -- bo is buffer options. Wrapper around nvim_set_option_value
   -- b is buffer variables. Also a wrapper
     local ftlcl = vim.bo[newbuf].filetype
-    local ok, ftrmt = pcall(remote.get_ft)
-    if not ok then error("TODO: Unhandled!!") end
+    local ftrmt = todo_error_call(remote.get_ft)
     if ftlcl ~= ftrmt then vim.bo[newbuf].filetype = ftrmt end
   end
 
   local tickrmt = 0
   local function update_lines()
-    local newtickrmt = remote.get_tick()
+    local newtickrmt = todo_error_call(remote.get_tick)
+
     if tickrmt ~= newtickrmt then
       assert (newtickrmt > tickrmt)
       tickrmt = newtickrmt
-      local ok, lines = pcall(remote.get_buflines)
-      if not ok then error("TODO: Unhandled!!") end
+      local lines = todo_error_call(remote.get_buflines)
 
       -- modifiable is for buffers (we need). 
       -- readonly is for the underlying file

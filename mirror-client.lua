@@ -139,8 +139,10 @@ local function mirror_coro(server_path, remote_buf, chill)
   local thiscoro = assert(coroutine.running())
 
   local newbuf = vim.api.nvim_create_buf(true, true)
+
   -- this : format thing useds string __index + lua's : sugar
-  vim.api.nvim_buf_set_name(newbuf, ('mirror:%s [%d]'):format(server_path, remote_buf))
+  -- Putting local buffer name makes this unique
+  vim.api.nvim_buf_set_name(newbuf, ('mirror:%s [%d] -> (%d)'):format(server_path, remote_buf, newbuf))
 
   buf_to_coro[newbuf] = thiscoro
 

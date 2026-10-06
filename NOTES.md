@@ -23,6 +23,10 @@ For clients
 :detach
 v:servername
 
+## Module system
+- lua/mirror.lua and lua/mirror/init.lua are equivalent, and can both be required using mirror
+- files in the lua directory do not run automatically. Only when some code calls require do they run. However, files in the plugin directory do run.
+
 ## Misc
 vim.api.nvim_list_uis
 vim.api.nvim_list_chans

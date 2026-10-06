@@ -9,3 +9,5 @@ Either read `v:servername`, or start the instance using `nvim --listen <serverna
 This library module has the following methods
 - `mirror (server_path, buffer_no)`: Mirror a remote server buffer in a new scratch buffer
 - `stop_mirroring()`:  Stop mirroring
+
+Use `require('mirror')` to get the module

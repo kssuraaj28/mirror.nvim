@@ -152,11 +152,9 @@ local function mirror_coro(server_path, remote_buf, chill)
   -- this : format thing useds string __index + lua's : sugar
   -- Putting local buffer name makes this unique
   vim.api.nvim_buf_set_name(newbuf, ('mirror:%s [%d] -> (%d)'):format(server_path, remote_buf, newbuf))
+  vim.bo[newbuf].undolevels = -1
 
   buf_to_coro[newbuf] = thiscoro
-
-
-
   local msg_queue = queue()
   register_to_queue_db(msg_queue.push)
 

@@ -128,7 +128,7 @@ local buf_to_coro = {}
 
 local stop_tkn = {}
 function M.stop_mirroring()
-  local coro = assert(buf_to_coro[vim.api.nvim_get_current_buf()])
+  local coro = assert(buf_to_coro[vim.api.nvim_get_current_buf()], "No coroutine associated with buffer")
   send_msg(coro, stop_tkn)
 end
 
@@ -137,9 +137,9 @@ local function mirror_coro(server_path, remote_buf, chill)
   --A scratch buffer has buftype=nofile,
   --so it can never be associated with a file..
   local thiscoro = assert(coroutine.running())
+  local remote = cnstrct_rmt_bf(server_path, remote_buf)
 
   local newbuf = vim.api.nvim_create_buf(true, true)
-
   -- this : format thing useds string __index + lua's : sugar
   -- Putting local buffer name makes this unique
   vim.api.nvim_buf_set_name(newbuf, ('mirror:%s [%d] -> (%d)'):format(server_path, remote_buf, newbuf))
@@ -148,7 +148,6 @@ local function mirror_coro(server_path, remote_buf, chill)
 
   vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
 
-  local remote = cnstrct_rmt_bf(server_path, remote_buf)
 
   local msg_queue = queue()
   register_to_queue_db(msg_queue.push)
@@ -203,10 +202,10 @@ local function mirror_coro(server_path, remote_buf, chill)
   -- Cleanup. Ideally, we'd have some RAII
   -- I'm assuming that any error from the coroutine is a bug.
   unregister_from_queue_db() --TODO: Correct order 
-  remote.close()
   buf_to_coro[newbuf] = nil
   -- wipeout the buffer (not just unload. The buffer is now invalid)
   vim.api.nvim_buf_delete(newbuf, {}) -- You don't need to have a force = true
+  remote.close()
 end
 
 function M.mirror(server_path, remote_buf)

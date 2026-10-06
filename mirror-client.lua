@@ -19,8 +19,9 @@ end
 -- Lua coroutines don't
 -- TODO: Have one function that will throw an error for both coroutines and the main thread
 local function coro_error(msg)
+  assert(coroutine.running())
   vim.notify(msg,vim.log.levels.ERROR)
-  error() -- TODO: What are other ways to throw in lua?
+  error(msg) -- TODO: What are other ways to throw in lua?
 end
 
 -- Spawns a coroutine with a body
@@ -155,9 +156,10 @@ do
   end
 end
 
-function M.send_to_buf(msg)
+local stop_tkn = {}
+function M.stop_mirroring()
   local coro = assert(buf_to_coro(vim.api.nvim_get_current_buf()))
-  send_msg(coro, msg)
+  send_msg(coro, stop_tkn)
 end
 
 local function mirror_coro(server_path, remote_buf, chill)
@@ -200,11 +202,16 @@ local function mirror_coro(server_path, remote_buf, chill)
     end
   end
 
-  local function handle_msgs()
+
+  local function handle_msgs_for_exit()
     while true do
       local msg = msg_queue.pop()
       if not msg then break end
-      print(msg)
+      if (msg  == stop_tkn) then
+        return true
+      else
+        coro_error("Unhandled message")
+      end
     end
   end
 
@@ -212,9 +219,14 @@ local function mirror_coro(server_path, remote_buf, chill)
     assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid")
     update_ft()
     update_lines()
-    handle_msgs()
+    if handle_msgs_for_exit() then break end
     chill() -- TODO: Make this event driven later.
   end
+
+  -- Cleanup
+  -- wipeout the buffer (not just unload. The buffer is now invalid)
+  vim.api.nvim_buf_delete(newbuf, {}) -- You don't need to have a force = true
+  -- Delete the association
 end
 
 function M.mirror(server_path, remote_buf)
@@ -225,9 +237,6 @@ return M
 --[[
 Lua + vim notes
 * undolevels=-1 will always "already at oldest / newest change".
-* nvim_buf_is_valid
-* bunload wipes the buffer memory. However, the buffer still exists (nvim_buf_is_valid)
-* Use bwipeout [b] to make a buffer invalid.
 * Use vim.api.nvim_list_chans()  to list leaked channels
 * x:method = x.method(x)
 * vim.uv.new_thread is for actual multithreading

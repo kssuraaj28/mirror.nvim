@@ -198,7 +198,7 @@ local function mirror_coro(server_path, remote_buf, chill)
 
   while true do
     if handle_msgs_for_exit() then break end
-    assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid")
+    assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid") -- bwipe does not do cleanup.. We really need RAII
     update_ft() -- You can get filetype, tick, etc atomic later for optimization
     update_lines()
     chill() -- TODO: Make this event driven later.

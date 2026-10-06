@@ -146,13 +146,15 @@ local function mirror_coro(server_path, remote_buf, chill)
   local remote = cnstrct_rmt_bf(server_path, remote_buf)
 
   local newbuf = vim.api.nvim_create_buf(true, true)
+  vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
+  -- Many things run synchronously when this runs (autocommands, etc.)
+
   -- this : format thing useds string __index + lua's : sugar
   -- Putting local buffer name makes this unique
   vim.api.nvim_buf_set_name(newbuf, ('mirror:%s [%d] -> (%d)'):format(server_path, remote_buf, newbuf))
 
   buf_to_coro[newbuf] = thiscoro
 
-  vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
 
 
   local msg_queue = queue()
@@ -197,16 +199,16 @@ local function mirror_coro(server_path, remote_buf, chill)
   end
 
   while true do
+    if handle_msgs_for_exit() then break end
     assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid")
     update_ft()
     update_lines()
-    if handle_msgs_for_exit() then break end
     chill() -- TODO: Make this event driven later.
   end
 
   -- Cleanup. Ideally, we'd have some RAII
   -- I'm assuming that any error from the coroutine is a bug.
-  unregister_from_queue_db() --TODO: Correct order 
+  unregister_from_queue_db()
   buf_to_coro[newbuf] = nil
   -- wipeout the buffer (not just unload. The buffer is now invalid)
   vim.api.nvim_buf_delete(newbuf, {}) -- You don't need to have a force = true

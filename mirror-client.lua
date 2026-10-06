@@ -214,7 +214,7 @@ Lua + vim notes
 * x:method = x.method(x)
 * vim.uv.new_thread is for actual multithreading
 * Use t:stop(), t:start(), t:close() and t:is_closing() (where t is a timer (look at defer_fn ret) to cancel work) for intimate coroutine control
-
-  assert(coroutine.status(co) == "dead", "coroutine still
-  running")
+* vim.in_fast_event()
+* uv.timeout.
+* vim.schedule.
 --]]

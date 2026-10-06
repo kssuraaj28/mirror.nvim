@@ -104,12 +104,19 @@ end
 -- Message queue
 local send_msg
 local register_to_queue_db
+local unregister_from_queue_db
 do
   local db = {}
   register_to_queue_db = function (send_fn)
     local c = assert(coroutine.running())
     assert(not db[c])
     db[c] = send_fn
+  end
+
+  unregister_from_queue_db = function ()
+    local c = assert(coroutine.running())
+    assert(db[c])
+    db[c] = nil
   end
 
   send_msg = function (coro, msg)
@@ -193,10 +200,11 @@ local function mirror_coro(server_path, remote_buf, chill)
 
   -- Cleanup. Ideally, we'd have some RAII
   -- I'm assuming that any error from the coroutine is a bug.
+  unregister_from_queue_db() --TODO: Correct order 
+  remote.close()
+  buf_to_coro[newbuf] = nil
   -- wipeout the buffer (not just unload. The buffer is now invalid)
   vim.api.nvim_buf_delete(newbuf, {}) -- You don't need to have a force = true
-  buf_to_coro[newbuf] = nil
-  remote.close()
 end
 
 function M.mirror(server_path, remote_buf)

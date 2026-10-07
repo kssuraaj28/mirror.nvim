@@ -9,7 +9,8 @@ This plugin depends my `chill` lua plugin
 
 ## How to mirror
 This library module has the following methods
-- `mirror (server_path, buffer_no)`: Mirror a remote server buffer in a new scratch buffer
+- `mirror_buf (server_path, buffer_no)`: Mirror a remote server buffer in a new scratch buffer
+- `mirror_win (server_path, window_no)`: Mirror a remote server window in a new scratch buffer
 - `stop_mirroring()`:  Stop mirroring
 
-Use `require('mirror')` to get the module
+Use `require('mirror')` to use the module.

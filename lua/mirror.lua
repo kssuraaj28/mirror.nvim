@@ -1,9 +1,3 @@
---[[
-Usage: local mod =  require(...)
-mod.mirror('socket', bufnr)
-mod.stop_mirroring()
---]]
-
 --@diagnostic disable: unused-function
 --@diagnostic disable: unused-local
 
@@ -19,31 +13,37 @@ local function force_replace_buf_lines(buf, lines)
 end
 
 
-local function cnstrct_rmt_bf(socket_path, buf_nr)
+local function cnstrct_rmt(socket_path)
   local rpcch = vim.fn.sockconnect("pipe", socket_path, { rpc = true })
 
-  local function get_ft()
+  local function get_ft(buf_nr)
     return vim.rpcrequest(rpcch, "nvim_get_option_value", "filetype", { buf = buf_nr })
   end
 
-  local function get_buflines()
-    return (vim.rpcrequest(rpcch, "nvim_buf_get_lines", buf_nr, 0, -1, false))
+  local function get_buflines(buf_nr)
+    return vim.rpcrequest(rpcch, "nvim_buf_get_lines", buf_nr, 0, -1, false)
   end
 
-  local function get_tick()
-   return vim.rpcrequest(rpcch, "nvim_buf_get_changedtick", buf_nr)
+  local function get_tick(buf_nr)
+    return vim.rpcrequest(rpcch, "nvim_buf_get_changedtick", buf_nr)
+  end
+
+  local function win_to_buf(win_nr)
+    return vim.rpcrequest(rpcch, "nvim_win_get_buf", win_nr)
   end
 
   local function close()
     vim.fn.chanclose(rpcch)
   end
 
+  -- TODO: You can iterate over this and wrap everything around with a pcall.
   --Closures can be expensive because we make a copy of functions for every object
   --Lua has x:method and metatables which can be cheaper. You lose encapsulation tho
   return {
     get_ft = get_ft,
     get_buflines = get_buflines,
     get_tick = get_tick,
+    win_to_buf = win_to_buf,
     close = close,
   }
 end
@@ -90,19 +90,23 @@ function M.stop_mirroring()
   send_msg(coro, stop_tkn)
 end
 
-local function todo_error_call(f)
-  local ok, ret = pcall(f)
+local function todo_error_call(...)
+  local ok, ret = pcall(...)
   if not ok then error("Unhandled") end
   return ret
 end
 
-local function mirror_coro(server_path, remote_buf, chill)
+local function mirror_coro(server_path, win_or_buf, is_buf, chill)
+  local thiscoro = assert(coroutine.running())
+
+  assert(is_buf, "Window mirroring not implemented yet!")
+  local remote_buf = win_or_buf
+
+  local remote = cnstrct_rmt(server_path)
+
   --Create a new visible + scratch buffer 
   --A scratch buffer has buftype=nofile,
   --so it can never be associated with a file..
-  local thiscoro = assert(coroutine.running())
-  local remote = cnstrct_rmt_bf(server_path, remote_buf)
-
   local newbuf = vim.api.nvim_create_buf(true, true)
   vim.api.nvim_set_current_buf(newbuf) -- TODO Check that it is loaded, etc.
   -- Many things run synchronously when this runs (autocommands, etc.)
@@ -120,18 +124,18 @@ local function mirror_coro(server_path, remote_buf, chill)
   -- bo is buffer options. Wrapper around nvim_set_option_value
   -- b is buffer variables. Also a wrapper
     local ftlcl = vim.bo[newbuf].filetype
-    local ftrmt = todo_error_call(remote.get_ft)
+    local ftrmt = todo_error_call(remote.get_ft, remote_buf)
     if ftlcl ~= ftrmt then vim.bo[newbuf].filetype = ftrmt end
   end
 
   local tickrmt = 0
   local function update_lines()
-    local newtickrmt = todo_error_call(remote.get_tick)
+    local newtickrmt = todo_error_call(remote.get_tick, remote_buf)
 
     if tickrmt ~= newtickrmt then
       assert (newtickrmt > tickrmt)
       tickrmt = newtickrmt
-      local lines = todo_error_call(remote.get_buflines)
+      local lines = todo_error_call(remote.get_buflines, remote_buf)
 
       -- modifiable is for buffers (we need). 
       -- readonly is for the underlying file
@@ -171,8 +175,12 @@ local function mirror_coro(server_path, remote_buf, chill)
   remote.close()
 end
 
-function M.mirror(server_path, remote_buf)
-  spawn(function(chill) mirror_coro(server_path, remote_buf, chill) end)
+function M.mirror_buf(server_path, remote_buf)
+  spawn(function(chill) mirror_coro(server_path, remote_buf, true, chill) end)
+end
+
+function M.mirror_win(server_path, remote_win)
+  spawn(function(chill) mirror_coro(server_path, remote_win, false, chill) end)
 end
 
 return M

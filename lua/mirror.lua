@@ -36,26 +36,38 @@ local function cnstrct_rmt(socket_path)
     vim.fn.chanclose(rpcch)
   end
 
-  -- TODO: You can iterate over this and wrap everything around with a pcall.
-  --Closures can be expensive because we make a copy of functions for every object
-  --Lua has x:method and metatables which can be cheaper. You lose encapsulation tho
-  return {
+  local api = {
     get_ft = get_ft,
     get_buflines = get_buflines,
     get_tick = get_tick,
     win_to_buf = win_to_buf,
     close = close,
   }
+
+  -- A vararg helper
+  local function pcall_helper(ok, ...)
+    if not ok then error("TODO. Unhandled network error: " .. tostring((...))) end
+    return ...
+  end
+
+  -- Wrap all networking functions in pcall
+  for k, f in pairs(api) do
+    api[k] = function(...) return pcall_helper(pcall(f,...)) end
+  end
+
+  --Closures can be expensive because we make a copy of functions for every object
+  --Lua has x:method and metatables which can be cheaper. You lose encapsulation tho
+  return api
 end
 
 local function queue()
   local data = {}
   return {
-      push = function(elm)
-          assert(elm ~= nil, "Cannot push nil")
-          table.insert(data,elm)
-      end,
-      pop = function() return table.remove(data,1) end,
+    push = function(elm)
+      assert(elm ~= nil, "Cannot push nil")
+      table.insert(data,elm)
+    end,
+    pop = function() return table.remove(data,1) end
   }
 end
 
@@ -90,12 +102,6 @@ function M.stop_mirroring()
   send_msg(coro, stop_tkn)
 end
 
-local function todo_error_call(...)
-  local ok, ret = pcall(...)
-  if not ok then error("Unhandled") end
-  return ret
-end
-
 local function mirror_coro(server_path, win_or_buf, is_buf, chill)
   local thiscoro = assert(coroutine.running())
 
@@ -106,7 +112,7 @@ local function mirror_coro(server_path, win_or_buf, is_buf, chill)
   -- TODO: Error handling when remote window dies, remote buffer dies.
   if is_buf then remote_buf = win_or_buf else
     remote_win = win_or_buf
-    remote_buf = todo_error_call(remote.win_to_buf,remote_win) -- TODO: I don't like this..
+    remote_buf = remote.win_to_buf(remote_win)
   end
 
 
@@ -138,18 +144,18 @@ local function mirror_coro(server_path, win_or_buf, is_buf, chill)
   -- bo is buffer options. Wrapper around nvim_set_option_value
   -- b is buffer variables. Also a wrapper
     local ftlcl = vim.bo[newbuf].filetype
-    local ftrmt = todo_error_call(remote.get_ft, remote_buf)
+    local ftrmt = remote.get_ft(remote_buf)
     if ftlcl ~= ftrmt then vim.bo[newbuf].filetype = ftrmt end
   end
 
   local tickrmt = 0
   local function update_lines()
-    local newtickrmt = todo_error_call(remote.get_tick, remote_buf)
+    local newtickrmt = remote.get_tick(remote_buf)
 
     if tickrmt ~= newtickrmt then
       assert (newtickrmt > tickrmt)
       tickrmt = newtickrmt
-      local lines = todo_error_call(remote.get_buflines, remote_buf)
+      local lines = remote.get_buflines(remote_buf)
 
       -- modifiable is for buffers (we need). 
       -- readonly is for the underlying file
@@ -176,7 +182,7 @@ local function mirror_coro(server_path, win_or_buf, is_buf, chill)
   local function update_buf()
     if is_buf then return end
     assert(remote_buf); assert(remote_win)
-    local new_buf = todo_error_call(remote.win_to_buf,remote_win)
+    local new_buf = remote.win_to_buf(remote_win)
     if new_buf == remote_buf then return end
     remote_buf = new_buf; tickrmt = 0; vim.bo[newbuf].filetype = ''
   end

@@ -28,10 +28,6 @@ local function cnstrct_rmt(socket_path)
     return vim.rpcrequest(rpcch, "nvim_buf_get_changedtick", buf_nr)
   end
 
-  local function win_to_buf(win_nr)
-    return vim.rpcrequest(rpcch, "nvim_win_get_buf", win_nr)
-  end
-
   local function close()
     vim.fn.chanclose(rpcch)
   end
@@ -40,7 +36,6 @@ local function cnstrct_rmt(socket_path)
     get_ft = get_ft,
     get_buflines = get_buflines,
     get_tick = get_tick,
-    win_to_buf = win_to_buf,
     close = close,
   }
 
@@ -102,19 +97,12 @@ function M.stop_mirroring()
   send_msg(coro, stop_tkn)
 end
 
-local function mirror_coro(server_path, win_or_buf, is_buf, chill)
+local function mirror_coro(server_path, remote_buf, chill)
   local thiscoro = assert(coroutine.running())
 
   local remote = cnstrct_rmt(server_path)
 
-  local remote_win, remote_buf
-
-  -- TODO: Error handling when remote window dies, remote buffer dies.
-  if is_buf then remote_buf = win_or_buf else
-    remote_win = win_or_buf
-    remote_buf = remote.win_to_buf(remote_win)
-  end
-
+  -- TODO: Error handling when remote buffer dies.
 
   --Create a new visible + scratch buffer 
   --A scratch buffer has buftype=nofile, so it can never be associated with a file..
@@ -126,12 +114,7 @@ local function mirror_coro(server_path, win_or_buf, is_buf, chill)
 
   -- this : format thing useds string __index + lua's : sugar
   -- Buffer names have to be unique in vim
-  local bufname =
-    ('mirror:%s [%s(%d)] -> (%d)'):format(
-        server_path,
-        is_buf and 'BUF' or 'WIN',
-        is_buf and remote_buf or remote_win,
-        newbuf)
+  local bufname = ('mirror:%s [%d] -> (%d)'):format(server_path, remote_buf, newbuf)
   vim.api.nvim_buf_set_name(newbuf, bufname)
 
 
@@ -178,19 +161,9 @@ local function mirror_coro(server_path, win_or_buf, is_buf, chill)
     end
   end
 
-  -- If you are tracking window, then you need to update the buffer that is running
-  local function update_buf()
-    if is_buf then return end
-    assert(remote_buf); assert(remote_win)
-    local new_buf = remote.win_to_buf(remote_win)
-    if new_buf == remote_buf then return end
-    remote_buf = new_buf; tickrmt = 0; vim.bo[newbuf].filetype = ''
-  end
-
   while true do
     if handle_msgs_for_exit() then break end
     assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid") -- bwipe does not do cleanup.. We really need RAII
-    update_buf()
     update_ft() -- You can get filetype, tick, etc atomic later for optimization
     update_lines()
     chill() -- TODO: Make this event driven later.
@@ -206,11 +179,7 @@ local function mirror_coro(server_path, win_or_buf, is_buf, chill)
 end
 
 function M.mirror_buf(server_path, remote_buf)
-  spawn(function(chill) mirror_coro(server_path, remote_buf, true, chill) end)
-end
-
-function M.mirror_win(server_path, remote_win)
-  spawn(function(chill) mirror_coro(server_path, remote_win, false, chill) end)
+  spawn(function(chill) mirror_coro(server_path, remote_buf, chill) end)
 end
 
 return M

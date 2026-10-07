@@ -9,76 +9,15 @@ mod.stop_mirroring()
 
 local M = {}
 
+-- Use set rtp+='...' to test locally
+local spawn = require('chill').spawn
+
 local function force_replace_buf_lines(buf, lines)
   -- TODO: Make sure that buf is an integer and not zero..
   local ret = {vim.api.nvim_buf_set_lines (buf, 0, -1, false, lines)}
   assert(vim.tbl_isempty(ret), "Call must not return anything")
 end
 
--- Spawns a coroutine with a body
--- The body is a function that takes in an argument which
--- allows it to chill for a little bit
-local function spawn (body)
-  local function body_wrapped()
-    local c = assert(coroutine.running())
-
-    local chill_interval = 100
-
-    local capability = {}
-    local chill_count = 0
-
-    local set_unauth_resume, get_unauth_resume
-    do
-      local unauth_resume = false
-      get_unauth_resume = function () return unauth_resume end
-      set_unauth_resume = function ()
-        assert(not unauth_resume, "Should be set only once")
-        unauth_resume = true
-      end
-    end
-
-    local chill, resume_c
-    chill = function ()
-      -- Access control
-      assert(c == (coroutine.running()), "Something else stole this function")
-      chill_count = chill_count + 1
-
-      local frozen = chill_count -- Don't read live data. Copy
-      vim.defer_fn(function () resume_c(frozen) end, chill_interval)
-
-      local cap = coroutine.yield()
-
-      if cap ~= capability then
-        set_unauth_resume()
-        error() -- Passing any value here can get eaten..
-      end
-    end
-
-    resume_c =  function (old_chill)
-      assert(not coroutine.running()) -- This is run in the main loop
-      if (get_unauth_resume() == true) then
-        assert(coroutine.status(c) == 'dead')
-        error("Killed by an unauthorized resume")
-      end
-      assert(coroutine.status(c) == 'suspended')
-      local ret = {coroutine.resume(c, capability)}
-      -- nvim uses an old version of lua
-      ---@diagnostic disable-next-line: deprecated
-      assert(unpack(ret)) -- A coroutine error is bad
-
-      -- The coroutine can die peacefully
-      if coroutine.status(c) == 'dead' then return end
-
-      assert(#ret == 1, "We return nothing")
-      assert(old_chill + 1 == chill_count, "Unauthorized yield")
-    end
-
-
-    chill() -- This makes the coroutine run after a while. Maybe that is okay..
-    body(chill)
-  end
-  coroutine.wrap(body_wrapped)()
-end
 
 local function cnstrct_rmt_bf(socket_path, buf_nr)
   local rpcch = vim.fn.sockconnect("pipe", socket_path, { rpc = true })

@@ -5,6 +5,8 @@ A lua library to mirror another vim buffer (the provider) to another nvim instan
 You need to know the nvim provider's socket name. 
 Either read `v:servername`, or start the instance using `nvim --listen <servername path>`
 
+This plugin depends my `chill` lua plugin
+
 ## How to mirror
 This library module has the following methods
 - `mirror (server_path, buffer_no)`: Mirror a remote server buffer in a new scratch buffer

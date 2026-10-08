@@ -13,6 +13,7 @@ local function force_replace_buf_lines(buf, lines)
 end
 
 
+local rmt_error = {}
 local function cnstrct_rmt(socket_path)
   local rpcch = vim.fn.sockconnect("pipe", socket_path, { rpc = true })
 
@@ -41,7 +42,9 @@ local function cnstrct_rmt(socket_path)
 
   -- A vararg helper
   local function pcall_helper(ok, ...)
-    if not ok then error("TODO. Unhandled network error: " .. tostring((...))) end
+    -- if not ok then error("TODO. Unhandled network error: " .. tostring((...))) end
+    if not ok then error(rmt_error) end -- If there is a network error, then just error
+    -- TODO: Log the real error later.
     return ...
   end
 
@@ -99,6 +102,7 @@ end
 
 local function mirror_coro(server_path, remote_buf, chill)
   local thiscoro = assert(coroutine.running())
+  assert(remote_buf ~= 0, "Give a proper buffer")
 
   local remote = cnstrct_rmt(server_path)
 
@@ -153,20 +157,26 @@ local function mirror_coro(server_path, remote_buf, chill)
     while true do
       local msg = msg_queue.pop()
       if not msg then break end
-      if (msg  == stop_tkn) then
-        return true
-      else
+      if (msg  == stop_tkn) then return true else
         error("Unhandled message")
       end
     end
   end
 
-  while true do
-    if handle_msgs_for_exit() then break end
-    assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid") -- bwipe does not do cleanup.. We really need RAII
-    update_ft() -- You can get filetype, tick, etc atomic later for optimization
-    update_lines()
-    chill() -- TODO: Make this event driven later.
+  local function main_loop()
+    while true do
+      if handle_msgs_for_exit() then break end
+      assert(vim.api.nvim_buf_is_valid(newbuf), "Buffer should be valid") -- bwipe does not do cleanup.. We really need RAII
+      update_ft() -- You can get filetype, tick, etc atomic later for optimization
+      update_lines()
+      chill() -- TODO: Make this event driven later.
+    end
+  end
+
+  local ok, err = pcall(main_loop)
+  if ok then assert(not err) -- Main loop does not return anything
+  elseif err ~= rmt_error then error(err, 0) -- Not a network error: a bug, so re-raise it unchanged
+  else print("Remote connection error") -- TODO: Better message and logging framework
   end
 
   -- Cleanup. Ideally, we'd have some RAII
